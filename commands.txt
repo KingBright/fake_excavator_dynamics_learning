@@ -1,0 +1,11 @@
+# 生成随机控制量
+/opt/homebrew/Caskroom/miniconda/base/envs/pendulum/bin/python3 generate_random_controls.py  --duration 6000 --output_file action_controls_100min.npz --min_hold 1 --max_hold 5.0 --pause_time 0.2 --smooth_alpha 0.1
+
+# 从模拟控制量生成模拟数据
+/opt/homebrew/Caskroom/miniconda/base/envs/pendulum/bin/python3 sim.py --xml excavator.xml --initial_control_mode scripted --duration 6000 --script_path action_controls_100min.npz --output data_111.npz --no_display
+
+# 训练
+/opt/homebrew/Caskroom/miniconda/base/envs/pendulum/bin/python3 train.py --data_path data_111.npz                     
+
+# replay
+/opt/homebrew/Caskroom/miniconda/base/envs/pendulum/bin/python3 sim.py --xml excavator.xml --initial_control_mode replay --replay_file data_111.npz --real_time

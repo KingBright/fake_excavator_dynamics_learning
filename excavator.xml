@@ -1,0 +1,65 @@
+<mujoco model="excavator">
+    <compiler meshdir="mesh" texturedir="texture"/>
+    <compiler angle="degree" />
+
+    <option timestep="0.02" gravity="0 0 -9.81" />
+
+    <visual>
+        <headlight ambient="0.5 0.5 0.5" diffuse="0.6 0.6 0.6" specular="0 0 0"/>
+    </visual>
+
+    <asset>
+        <mesh file="750_bucket.obj"/>
+        <texture name="bucket" type="2d" file="bucket_texture.png"/>
+        <material name="bucket" texture="bucket"/>
+    </asset>
+
+    <worldbody>
+        <!-- <geom name="ground" type="plane" size="20 20 0.1" rgba="0.8 0.9 0.8 1"/> -->
+        <light diffuse=".5 .5 .5" pos="0 0 6" dir="0 0 -1"/>
+
+        <body name="crawler_tracks" pos="0 0 1.7" euler="0.000000 0.000000 0.000000">
+            <geom name="crawler_tracks_geom" type="box" pos="0 0 -0.85" size="2.8 2.0 0.85" rgba="0.3 0.3 0.3 1"/>
+
+            <body name="cab" pos="0.000000 0.000000 0.915" euler="0.000000 0.000000 0.000000">
+                <inertial pos="-1.74936 -0.019 0.7076" mass="32486.5" diaginertia="17860 26630 39945" />
+                <geom name="cab_geom" type="box" pos="0.000000 0.000000 -0.4575" size="1.5000 1.2000 0.4575" rgba="0.7 0.7 0.7 1" />
+                <joint name="cab" type="hinge" axis="0 0 1" pos="0 0 0" ref="0.0"/>
+                <body name="boom" pos="0.230000 0.000000 0.000000" euler="0.000000 0.000000 0.000000" gravcomp="1">
+                    <inertial pos="3.5418 0.0 -0.78665" mass="6026.386" diaginertia="30 24615 24615" />
+                    <geom name="boom_geom" type="capsule" fromto="0 0 0 7.000000 0 0" size="0.100000" rgba="0.8 0.4 0.4 0.3"/>
+                    <joint name="boom" type="hinge" axis="0 1 0" pos="0 0 0" range="-57.000000 37.00000" ref="0.0"/>
+                    <body name="arm" pos="7.000000 0.000000 0.000000" euler="0.000000 0.000000 0.000000" gravcomp="1">
+                        <inertial pos="0.4912 0.0 0.3889" mass="2693" diaginertia="215 1622 1622" />
+                        <geom name="arm_geom" type="capsule" fromto="0 0 0 2.600000 0 0" size="0.400000" rgba="0.4 0.4 0.8 1"/>
+                        <joint name="arm" type="hinge" axis="0 1 0" pos="0 0 0" range="35.0000 140.0000" ref="0.0"/>
+                        <body name="bucket" pos="2.600000 0.000000 0.000000" euler="0.000000 0.000000 0.000000" gravcomp="1">
+                            <inertial pos="0.9344 0.0 -0.7622" mass="4811.3" diaginertia="1860 2490 3838" />
+                            <geom name="bucket_geom" type="mesh" mesh="750_bucket" material="bucket" pos="0.0 0.0 0.0" euler="0.0 -90.0 0.0" size="1 1 1"/>
+                            <joint name="bucket" type="hinge" axis="0 1 0" pos="0 0 0" range="-26.0000 140.0000" ref="0.0"/>
+                            <site name="bucket" pos="2.235000 0 0" size="0.02" rgba="1 1 0 1"/>
+                        </body>
+                    </body>
+                    <body name="boom_r_1" pos="0.000000 0.000000 0.000000" euler="0.000000 -20.880000 0.000000" gravcomp="1">
+                        <geom name="boom_r_1_geom" type="capsule" fromto="0 0 0 3.555250 0 0" size="0.400000" rgba="0.8 0.4 0.4 1"/>
+                        <body name="boom_r_2" pos="3.555250 0.000000 0.000000" euler="0.000000 39.070000 0.000000" gravcomp="1">
+                            <geom name="boom_r_2_geom" type="capsule" fromto="0 0 0 3.985950 0 0" size="0.400000" rgba="0.8 0.4 0.4 1"/>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+
+    <sensor>
+        <jointpos name="cab_pos_sensor" joint="cab"/>
+        <jointpos name="boom_pos_sensor" joint="boom"/>
+        <jointpos name="arm_pos_sensor" joint="arm"/>
+        <jointpos name="bucket_pos_sensor" joint="bucket"/>
+
+        <jointvel name="cab_vel_sensor" joint="cab"/>
+        <jointvel name="boom_vel_sensor" joint="boom"/>
+        <jointvel name="arm_vel_sensor" joint="arm"/>
+        <jointvel name="bucket_vel_sensor" joint="bucket"/>
+    </sensor>
+</mujoco>
