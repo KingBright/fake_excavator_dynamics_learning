@@ -157,8 +157,10 @@ if __name__ == "__main__":
     scaler_input = StandardScaler();
     if len(X_train) == 0: print("Error: Training set has size 0 after splitting."); exit()
     X_train_scaled = scaler_input.fit_transform(X_train)
-    if len(X_val) > 0: X_val_scaled = scaler_input.transform(X_val); else: X_val_scaled = np.empty((0, X_train.shape[1]))
-    if len(X_test) > 0: X_test_scaled = scaler_input.transform(X_test); else: X_test_scaled = np.empty((0, X_train.shape[1]))
+    if len(X_val) > 0: X_val_scaled = scaler_input.transform(X_val); 
+    else: X_val_scaled = np.empty((0, X_train.shape[1]))
+    if len(X_test) > 0: X_test_scaled = scaler_input.transform(X_test); 
+    else: X_test_scaled = np.empty((0, X_train.shape[1]))
     joblib.dump(scaler_input, scaler_filename); print(f"Input feature scaler saved to {scaler_filename}")
     print("Scaling ONLY output velocities (qvel part of labels, fit on train)...")
     qvel_output_indices = list(range(output_size - 4, output_size))
@@ -168,8 +170,10 @@ if __name__ == "__main__":
     scaler_qvel_out = StandardScaler()
     if len(y_train_vel) == 0: print("Error: Training velocity labels have size 0."); exit()
     y_train_vel_scaled = scaler_qvel_out.fit_transform(y_train_vel)
-    if len(y_val_vel) > 0: y_val_vel_scaled = scaler_qvel_out.transform(y_val_vel); else: y_val_vel_scaled = np.empty((0, 4))
-    if len(y_test_vel) > 0: y_test_vel_scaled = scaler_qvel_out.transform(y_test_vel); else: y_test_vel_scaled = np.empty((0, 4))
+    if len(y_val_vel) > 0: y_val_vel_scaled = scaler_qvel_out.transform(y_val_vel); 
+    else: y_val_vel_scaled = np.empty((0, 4))
+    if len(y_test_vel) > 0: y_test_vel_scaled = scaler_qvel_out.transform(y_test_vel); 
+    else: y_test_vel_scaled = np.empty((0, 4))
     joblib.dump(scaler_qvel_out, scaler_qvel_out_filename); print(f"Output qvel scaler saved to {scaler_qvel_out_filename}")
     y_train_processed = np.hstack((y_train_non_vel, y_train_vel_scaled)); y_val_processed = np.hstack((y_val_non_vel, y_val_vel_scaled)); y_test_processed = np.hstack((y_test_non_vel, y_test_vel_scaled))
     y_test_original = y_test_unscaled_vel.copy() # Contains cos, sin, other_qp, qv_orig
@@ -327,10 +331,14 @@ if __name__ == "__main__":
         print("Correlation (R) and R2 Score:")
         for j in range(4):
             mask_qpos = ~np.isnan(single_step_pred_qpos_orig[:, j]) & ~np.isnan(ground_truth_qpos_orig_for_test_seq[:, j]); mask_qvel = ~np.isnan(single_step_pred_qvel_orig[:, j]) & ~np.isnan(ground_truth_qvel_orig_for_test_seq[:, j])
-            if np.sum(mask_qpos) > 1: corr_qpos, _ = pearsonr(ground_truth_qpos_orig_for_test_seq[mask_qpos, j], single_step_pred_qpos_orig[mask_qpos, j]); try: r2_qpos = r2_score(ground_truth_qpos_orig_for_test_seq[mask_qpos, j], single_step_pred_qpos_orig[mask_qpos, j]); except ValueError: r2_qpos = np.nan
+            if np.sum(mask_qpos) > 1: corr_qpos, _ = pearsonr(ground_truth_qpos_orig_for_test_seq[mask_qpos, j], single_step_pred_qpos_orig[mask_qpos, j]); 
+            try: r2_qpos = r2_score(ground_truth_qpos_orig_for_test_seq[mask_qpos, j], single_step_pred_qpos_orig[mask_qpos, j]); 
+            except ValueError: r2_qpos = np.nan
             else: corr_qpos, r2_qpos = np.nan, np.nan
             correlations_qpos.append(corr_qpos); r2_scores_qpos.append(r2_qpos)
-            if np.sum(mask_qvel) > 1: corr_qvel, _ = pearsonr(ground_truth_qvel_orig_for_test_seq[mask_qvel, j], single_step_pred_qvel_orig[mask_qvel, j]); try: r2_qvel = r2_score(ground_truth_qvel_orig_for_test_seq[mask_qvel, j], single_step_pred_qvel_orig[mask_qvel, j]); except ValueError: r2_qvel = np.nan
+            if np.sum(mask_qvel) > 1: corr_qvel, _ = pearsonr(ground_truth_qvel_orig_for_test_seq[mask_qvel, j], single_step_pred_qvel_orig[mask_qvel, j]); 
+            try: r2_qvel = r2_score(ground_truth_qvel_orig_for_test_seq[mask_qvel, j], single_step_pred_qvel_orig[mask_qvel, j]); 
+            except ValueError: r2_qvel = np.nan
             else: corr_qvel, r2_qvel = np.nan, np.nan
             correlations_qvel.append(corr_qvel); r2_scores_qvel.append(r2_qvel)
             print(f"  {joint_names[j]}: Pos R={corr_qpos:.4f}, R2={r2_qpos:.4f} | Vel R={corr_qvel:.4f}, R2={r2_qvel:.4f}")
