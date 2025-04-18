@@ -14,7 +14,7 @@ import math
 import random
 import copy
 import time
-from tqdm import tqdm # --- 恢复: 导入 tqdm ---
+from tqdm import tqdm
 
 # ==============================================================================
 # LSTM Model Definition
@@ -38,7 +38,7 @@ class ExcavatorLSTM(nn.Module):
 # 自定义损失函数 (处理角度周期性)
 # ==============================================================================
 class PeriodicAngleMSELoss(nn.Module):
-    # (保持不变)
+    # (保持不变 - 它已经处理了周期性)
     def __init__(self, angle_indices=[0], non_angle_indices=[1, 2, 3], weight_angle=1.0, weight_other=1.0):
         super().__init__()
         self.angle_indices = angle_indices
@@ -80,6 +80,12 @@ def angle_difference(angle1, angle2):
     diff = angle1 - angle2
     return (diff + np.pi) % (2 * np.pi) - np.pi
 
+# --- 新增: 角度 Wrap 函数 ---
+def wrap_angle_to_pi(angle):
+    """将角度值 wrap 到 [-pi, pi] 区间"""
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+# --- 结束新增 ---
+
 # ==============================================================================
 # Main Training and Evaluation
 # ==============================================================================
@@ -93,7 +99,7 @@ if __name__ == "__main__":
     parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate between LSTM layers')
     parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=128, help='Training batch size')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate for Adam optimizer')
+    parser.add_argument('--learning_rate', type=float, default=0.0005, help='Learning rate for Adam optimizer')
     parser.add_argument('--test_split', type=float, default=0.2, help='Fraction of data to use for testing')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--qpos_indices', type=int, nargs=4, default=[0, 1, 2, 3], help='Indices of controlled joint positions in qpos array')
@@ -129,15 +135,30 @@ if __name__ == "__main__":
     except Exception as e: print(f"Error loading data: {e}"); exit()
 
     # --- 2. Feature Selection and Engineering ---
-    # (保持不变)
     qpos_indices = args.qpos_indices; qvel_indices = args.qvel_indices
     print(f"Using qpos indices: {qpos_indices}"); print(f"Using qvel indices: {qvel_indices}")
-    try: qpos = qpos_all[:, qpos_indices]; qvel = qvel_all[:, qvel_indices]
+    try:
+        qpos = qpos_all[:, qpos_indices].copy() # Use copy to modify
+        qvel = qvel_all[:, qvel_indices]
     except IndexError as e: print(f"Error selecting indices: {e}. Check indices."); exit()
+
+    # --- 新增: Wrap 周期性角度到 [-pi, pi] ---
+    periodic_idx_in_controlled = args.periodic_angle_idx # e.g., 0 for cab
+    print(f"Wrapping angle at index {periodic_idx_in_controlled} (qpos[:, {periodic_idx_in_controlled}]) to [-pi, pi]...")
+    qpos[:, periodic_idx_in_controlled] = wrap_angle_to_pi(qpos[:, periodic_idx_in_controlled])
+    # --- 结束新增 ---
+
+    # 输入特征: control (4), qpos (4), qvel (4) -> 12 维
     num_steps = min(len(qpos), len(qvel), len(control_signal))
-    input_features = np.hstack((control_signal[:num_steps], qpos[:num_steps], qvel[:num_steps]))
-    output_qpos_labels = qpos[1:num_steps+1]; output_qvel_labels = qvel[1:num_steps+1]
+    input_features = np.hstack((control_signal[:num_steps],
+                                qpos[:num_steps], # 使用 wrap 后的 qpos
+                                qvel[:num_steps]))
+
+    # 输出标签: next qpos (wrap 后的) + next qvel -> 8维
+    output_qpos_labels = qpos[1:num_steps+1]
+    output_qvel_labels = qvel[1:num_steps+1]
     output_labels = np.hstack((output_qpos_labels, output_qvel_labels))
+
     input_features = input_features[:len(output_labels)]
     print(f"Input features shape: {input_features.shape}"); print(f"Output labels shape: {output_labels.shape}")
     input_size = input_features.shape[1]; output_size = output_labels.shape[1]
@@ -170,74 +191,42 @@ if __name__ == "__main__":
     # --- 6. Model, Loss, Optimizer ---
     # (保持不变)
     model = ExcavatorLSTM(input_size, args.hidden_size, output_size, args.num_layers, args.dropout).to(device)
-    periodic_idx = [args.periodic_angle_idx]; non_periodic_idx = [i for i in range(4) if i != args.periodic_angle_idx]
-    criterion = PeriodicAngleMSELoss(angle_indices=periodic_idx, non_angle_indices=non_periodic_idx)
-    print(f"Using PeriodicAngleMSELoss for angle index {periodic_idx}")
+    periodic_idx_list = [args.periodic_angle_idx]; non_periodic_idx_list = [i for i in range(4) if i != args.periodic_angle_idx]
+    criterion = PeriodicAngleMSELoss(angle_indices=periodic_idx_list, non_angle_indices=non_periodic_idx_list)
+    print(f"Using PeriodicAngleMSELoss for angle index {periodic_idx_list}")
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print("Model Summary:"); print(model); num_params = sum(p.numel() for p in model.parameters() if p.requires_grad); print(f"Total trainable parameters: {num_params}")
 
-    # --- 7. Training Loop (修改: 恢复 tqdm) ---
+    # --- 7. Training Loop ---
+    # (保持不变, 使用 tqdm)
     print("Starting training...")
-    train_losses = []
-    best_loss = float('inf')
-    epochs_no_improve = 0
+    train_losses = []; best_loss = float('inf'); epochs_no_improve = 0
     total_start_time = time.time()
-
     for epoch in range(args.epochs):
-        epoch_start_time = time.time()
-        model.train()
-        epoch_loss = 0
-        # --- 修改: 恢复 tqdm 进度条 ---
+        epoch_start_time = time.time(); model.train(); epoch_loss = 0
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} Train", leave=False)
         for batch_x, batch_y in progress_bar:
-        # --- 结束修改 ---
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device) # Move data to device
-            optimizer.zero_grad()
-            outputs, _ = model(batch_x)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-            # --- 修改: 恢复 progress_bar.set_postfix ---
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            optimizer.zero_grad(); outputs, _ = model(batch_x); loss = criterion(outputs, batch_y)
+            loss.backward(); optimizer.step(); epoch_loss += loss.item()
             progress_bar.set_postfix(loss=f"{loss.item():.6f}")
-            # --- 结束修改 ---
-
-        avg_loss = epoch_loss / len(train_loader)
-        train_losses.append(avg_loss)
-        epoch_end_time = time.time()
-        epoch_duration = epoch_end_time - epoch_start_time
-
-        # 打印 Epoch 总结信息 (包含耗时)
+        avg_loss = epoch_loss / len(train_loader); train_losses.append(avg_loss)
+        epoch_end_time = time.time(); epoch_duration = epoch_end_time - epoch_start_time
         print(f'Epoch [{epoch+1}/{args.epochs}], Loss: {avg_loss:.6f}, Time: {epoch_duration:.2f}s')
-
-        # Simple early stopping based on training loss improvement
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            epochs_no_improve = 0
-            torch.save(model.state_dict(), model_filename)
-        else:
-            epochs_no_improve += 1
-        if epochs_no_improve >= 10:
-            print(f"Early stopping triggered at epoch {epoch+1}")
-            break
-
-    total_end_time = time.time()
-    total_training_time = total_end_time - total_start_time
+        if avg_loss < best_loss: best_loss = avg_loss; epochs_no_improve = 0; torch.save(model.state_dict(), model_filename)
+        else: epochs_no_improve += 1
+        if epochs_no_improve >= 10: print(f"Early stopping triggered at epoch {epoch+1}"); break
+    total_end_time = time.time(); total_training_time = total_end_time - total_start_time
     print(f"Training finished. Total time: {total_training_time:.2f}s")
-    # --- 结束训练循环修改 ---
 
-    # --- 8. Save Model (加载最佳模型) ---
+    # --- 8. Load Best Model ---
     # (保持不变)
-    if os.path.exists(model_filename):
-        print(f"Loading best model from {model_filename} for evaluation...")
-        model.load_state_dict(torch.load(model_filename, map_location=device))
-    else:
-        print("Warning: No best model file found. Evaluating model from last epoch.")
+    if os.path.exists(model_filename): print(f"Loading best model from {model_filename} for evaluation..."); model.load_state_dict(torch.load(model_filename, map_location=device))
+    else: print("Warning: No best model file found. Evaluating model from last epoch.")
 
     # --- 9. Evaluation ---
     # (保持不变)
-    print("Evaluating model...")
-    model.eval(); test_loss_single_step = 0
+    print("Evaluating model..."); model.eval(); test_loss_single_step = 0
     all_single_step_preds = []; all_single_step_targets = []
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
@@ -247,7 +236,6 @@ if __name__ == "__main__":
     print(f"Average Test Set Loss (Single Step Prediction, Custom Loss): {avg_test_loss_single_step:.6f}")
 
     # --- 10. Multi-step Rollout Prediction & Single-step Prediction on Rollout Segment ---
-    # (保持不变)
     print("Performing multi-step rollout and single-step prediction on a test segment...")
     start_index = 0
     if len(X_test_seq) <= start_index: print("Not enough test sequences for evaluation.")
@@ -262,12 +250,20 @@ if __name__ == "__main__":
             for i in range(1, rollout_steps):
                 predicted_output_tensor, current_h_c_rollout = model(current_sequence_rollout, current_h_c_rollout)
                 predicted_output = predicted_output_tensor.cpu().numpy().flatten()
-                next_qpos_pred = predicted_output[:4]; next_qvel_pred = predicted_output[4:]
+                next_qpos_pred = predicted_output[:4]
+                next_qvel_pred = predicted_output[4:]
+
+                # --- 新增: Wrap 预测出的周期性角度 ---
+                next_qpos_pred[periodic_idx_list] = wrap_angle_to_pi(next_qpos_pred[periodic_idx_list])
+                # --- 结束新增 ---
+
                 predictions_rollout_pos.append(next_qpos_pred); predictions_rollout_vel.append(next_qvel_pred)
+
                 next_control_idx = start_index + args.seq_length + i - 1
                 if next_control_idx >= len(X_test): break
                 next_control_signal = X_test[next_control_idx, :4]
-                next_qpos = next_qpos_pred; next_qvel = next_qvel_pred
+                next_qpos = next_qpos_pred # 使用 wrap 后的 qpos
+                next_qvel = next_qvel_pred
                 next_input_frame_unscaled = np.concatenate((next_control_signal, next_qpos, next_qvel))
                 next_input_frame_scaled = scaler.transform(next_input_frame_unscaled.reshape(1, -1)).flatten()
                 next_sequence_np = np.vstack((current_sequence_rollout.cpu().numpy()[0, 1:, :], next_input_frame_scaled))
@@ -315,12 +311,12 @@ if __name__ == "__main__":
 
         # --- 12. Calculate & Print Errors for Both Modes ---
         # (保持不变, 除了绘图保存路径)
-        rollout_qpos_error = np.zeros_like(predictions_rollout_pos); rollout_qpos_error[:, non_periodic_idx] = predictions_rollout_pos[:, non_periodic_idx] - ground_truth_rollout_pos[:, non_periodic_idx]; rollout_qpos_error[:, periodic_idx] = angle_difference(predictions_rollout_pos[:, periodic_idx], ground_truth_rollout_pos[:, periodic_idx])
+        rollout_qpos_error = np.zeros_like(predictions_rollout_pos); rollout_qpos_error[:, non_periodic_idx_list] = predictions_rollout_pos[:, non_periodic_idx_list] - ground_truth_rollout_pos[:, non_periodic_idx_list]; rollout_qpos_error[:, periodic_idx_list] = angle_difference(predictions_rollout_pos[:, periodic_idx_list], ground_truth_rollout_pos[:, periodic_idx_list])
         rollout_qvel_error = predictions_rollout_vel - ground_truth_rollout_vel
         rollout_qpos_mae = np.mean(np.abs(rollout_qpos_error)); rollout_qvel_mae = np.mean(np.abs(rollout_qvel_error)); rollout_qpos_rmse = np.sqrt(np.mean(rollout_qpos_error**2)); rollout_qvel_rmse = np.sqrt(np.mean(rollout_qvel_error**2))
         print("\n--- Rollout Prediction Errors ---"); print(f"Qpos MAE: {rollout_qpos_mae:.6f} rad"); print(f"Qvel MAE: {rollout_qvel_mae:.6f} rad/s"); print(f"Qpos RMSE: {rollout_qpos_rmse:.6f} rad"); print(f"Qvel RMSE: {rollout_qvel_rmse:.6f} rad/s")
 
-        single_step_qpos_error = np.zeros_like(predictions_single_step_pos); single_step_qpos_error[:, non_periodic_idx] = predictions_single_step_pos[:, non_periodic_idx] - ground_truth_rollout_pos[:, non_periodic_idx]; single_step_qpos_error[:, periodic_idx] = angle_difference(predictions_single_step_pos[:, periodic_idx], ground_truth_rollout_pos[:, periodic_idx])
+        single_step_qpos_error = np.zeros_like(predictions_single_step_pos); single_step_qpos_error[:, non_periodic_idx_list] = predictions_single_step_pos[:, non_periodic_idx_list] - ground_truth_rollout_pos[:, non_periodic_idx_list]; single_step_qpos_error[:, periodic_idx_list] = angle_difference(predictions_single_step_pos[:, periodic_idx_list], ground_truth_rollout_pos[:, periodic_idx_list])
         single_step_qvel_error = predictions_single_step_vel - ground_truth_rollout_vel
         single_step_qpos_mae = np.mean(np.abs(single_step_qpos_error)); single_step_qvel_mae = np.mean(np.abs(single_step_qvel_error)); single_step_qpos_rmse = np.sqrt(np.mean(single_step_qpos_error**2)); single_step_qvel_rmse = np.sqrt(np.mean(single_step_qvel_error**2))
         print("\n--- Single-Step Prediction Errors (on rollout segment) ---"); print(f"Qpos MAE: {single_step_qpos_mae:.6f} rad"); print(f"Qvel MAE: {single_step_qvel_mae:.6f} rad/s"); print(f"Qpos RMSE: {single_step_qpos_rmse:.6f} rad"); print(f"Qvel RMSE: {single_step_qvel_rmse:.6f} rad/s")
@@ -334,7 +330,7 @@ if __name__ == "__main__":
              axes_err[i, 1].plot(time_axis, rollout_qvel_error[:, i], label=f'{joint_names[i]} Vel Error', color='purple'); axes_err[i, 1].axhline(0, color='gray', linestyle='--', linewidth=0.8); axes_err[i, 1].set_ylabel('Error (rad/s)'); axes_err[i, 1].legend(); axes_err[i, 1].grid(True)
         axes_err[-1, 0].set_xlabel('Time (s)'); axes_err[-1, 1].set_xlabel('Time (s)')
         plt.tight_layout(rect=[0, 0.03, 1, 0.96])
-        plt.savefig(error_plot_save_path); print(f"Rollout error plot saved to {error_plot_save_path}"); plt.close(fig_err) # Use updated path
+        plt.savefig(error_plot_save_path); print(f"Rollout error plot saved to {error_plot_save_path}"); plt.close(fig_err)
 
     print("Script finished.")
 
